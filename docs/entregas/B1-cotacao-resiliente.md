@@ -6,7 +6,7 @@
 | Depende de | B0 |
 | Desbloqueia | B3, B4 |
 | Critério da avaliação | "O que ele faz quando a `/quote` falha?" (o que mais separa), rastreabilidade |
-| Status | ☐ A fazer |
+| Status | ☑ Pronto |
 
 ## Objetivo
 
@@ -23,15 +23,15 @@ Comportamento da API (`quote-service/app/main.py`):
 
 ## Tarefas
 
-- [ ] `quote/client.py`: `QuoteClient` assíncrono sobre `httpx.AsyncClient` (um cliente por processo, reaproveitando conexões).
-- [ ] `quote/errors.py`: classificação de erro (tabela abaixo).
-- [ ] `quote/breaker.py`: circuit breaker próprio, em memória (~40 linhas, com testes).
-- [ ] `quote/cache.py`: cache em memória com TTL, chave determinística.
-- [ ] `store/events.py`: `EventStore.append(conversation_id, type, payload)` no Postgres.
-- [ ] `store/quotes.py`: persistir `quotes` e `quote_attempts`.
-- [ ] `cli.py`: comando `autoseguro quote` para cotar direto (sem LLM).
-- [ ] `tests/oracle.py`: implementação de referência das regras de `plans.json`, **usada só em testes e na avaliação** (nunca para responder ao lead).
-- [ ] Testes de integração com `respx` e testes de caos contra o container.
+- [x] `quote/client.py`: `QuoteClient` assíncrono sobre `httpx.AsyncClient` (um cliente por processo, reaproveitando conexões).
+- [x] `quote/errors.py`: classificação de erro (tabela abaixo).
+- [x] `quote/breaker.py`: circuit breaker próprio, em memória, com testes.
+- [x] `quote/cache.py`: cache em memória com TTL, chave determinística.
+- [x] `quote/outcomes.py`: os 4 desfechos tipados.
+- [x] `store/base.py` (interfaces `EventStore` e `QuoteRepository`), `store/postgres.py` e `store/memory.py` (testes e `--no-db`). *Mudou em relação ao plano (`store/events.py` + `store/quotes.py`): agrupar por implementação deixou as interfaces num lugar só.*
+- [x] `cli.py`: comando `autoseguro quote` para cotar direto (sem LLM).
+- [x] `tests/oracle.py`: implementação de referência das regras de `plans.json`, **usada só em testes e na avaliação** (nunca para responder ao lead).
+- [x] Testes de integração com `respx`, contra o Postgres real, do oráculo contra a API real e de caos contra o container.
 
 ## Especificação
 
@@ -67,7 +67,7 @@ O cliente **nunca lança exceção** para o chamador por falha da API: sempre de
 | 422 com `error=cotacao_recusada` e motivo "Plano '…' inexistente" | `invalid_payload` | **Não** → `QuoteInvalid`. Como `plano_id` é um enum do nosso lado, isso indica bug, não recusa |
 | 422 com corpo `{"detail": [...]}` (validação do FastAPI: campo faltando, idade > 200, ano fora de 1950–2100) | `invalid_payload` | **Não** → `QuoteInvalid`. **O 422 tem dois significados nessa API**: distinguir pelo corpo, nunca só pelo status |
 | 400 (`error=payload_invalido`, ex.: `data_inicio` fora do formato ISO) | `invalid_payload` | **Não** → `QuoteInvalid` + log de erro |
-| 200 com corpo que não valida em `QuoteResult` | `bad_response` | Sim (uma vez) |
+| 200 com corpo que não valida em `QuoteResult` | `bad_response` | Sim, dentro do mesmo orçamento das outras falhas transitórias (sem regra especial de "uma vez") |
 | Outros 4xx | `client_error` | Não → `QuoteInvalid` |
 
 ### Política de retry
@@ -79,7 +79,7 @@ O cliente **nunca lança exceção** para o chamador por falha da API: sempre de
 | Prazo total | 12 s | `QUOTE_DEADLINE_S` |
 | Backoff | exponencial com *full jitter*: `random(0, min(2.0, 0.3 × 2^n))` | — |
 
-Implementação sugerida com `tenacity.AsyncRetrying`: `retry=retry_if_exception(is_retryable)`, `wait=wait_random_exponential(multiplier=0.3, max=2)`, `stop=stop_after_attempt(4) | stop_after_delay(12)`.
+**Implementado como um laço explícito, sem `tenacity`** (a dependência foi removida). Motivos: o timeout de cada tentativa depende do tempo que sobra do prazo, e o relógio, o `sleep` e o `random` precisam ser injetados nos testes. Com `tenacity` isso exigiria contornos; o laço tem ~40 linhas e se lê de cima para baixo.
 
 **Retry acontece só aqui.** O LLM, o grafo e o worker não repetem a mesma chamada por conta própria.
 
@@ -92,6 +92,7 @@ Conta para o README: com 70% de sucesso por tentativa, P(4 falhas) = 0.3⁴ ≈ 
 - **Meio-aberto** após 30 s: deixa passar uma chamada de teste. Se der certo, fecha; se falhar, abre de novo.
 - Uma recusa (422) ou um 400 **não** contam como falha (a API respondeu).
 - Cada mudança de estado emite o evento `breaker_state_changed`.
+- Se uma falha abre o breaker no meio de uma cotação, ela termina na hora com `circuit_open`, sem esperar o backoff.
 - Nota para o README: com 20% de falha aleatória, o breaker quase nunca abre (são precisas 5 falhas seguidas). Ele existe para a queda total.
 
 ### Cache
@@ -118,7 +119,7 @@ Conta para o README: com 70% de sucesso por tentativa, P(4 falhas) = 0.3⁴ ≈ 
 uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 01310-100 --inicio 2026-11-15
 ```
 
-Mostra cada tentativa (número, status, latência) e o resultado final; `--json` para saída em máquina.
+Mostra cada tentativa (número, status, latência) e o resultado final. Opções: `--repeat N` (várias cotações no mesmo processo, com resumo de tempos e desfechos), `--no-cache` (toda repetição chama a API), `--no-db` (grava em memória) e `--json`.
 
 ### Oráculo de teste (`tests/oracle.py`)
 
@@ -126,34 +127,39 @@ Reimplementa `plans.json` (faixa etária, idade do veículo, região, pro-rata) 
 
 ## Critérios de aceite
 
-- [ ] Com o caos padrão (20%/10%), 50 cotações seguidas pelo comando: todas terminam em `QuoteSucceeded` ou `QuoteUnavailable` em até ~12 s, e nenhuma trava.
-- [ ] Com `docker-compose.chaos-down.yml` (100% de falha): após 5 falhas o breaker abre, e as chamadas seguintes respondem em < 50 ms com `circuit_open`.
-- [ ] Com `docker-compose.chaos-slow.yml` (0% de falha, 100% de lentidão): cada tentativa é cortada em ≤ 2.5 s, nenhuma cotação passa de ~12 s, e o resultado é `QuoteUnavailable` (`deadline`, `retries_exhausted` ou, a partir da 2ª cotação, `circuit_open`, porque timeouts também contam para o breaker).
-- [ ] Payload com `data_inicio` inválida (forçado em teste) → `QuoteInvalid` com uma tentativa.
-- [ ] Idade 76 → `QuoteRefused` com uma única tentativa.
-- [ ] Toda chamada deixa linhas em `quotes`, `quote_attempts` e `events` com o mesmo `quote_id`.
-- [ ] O preço devolvido bate com o oráculo em 100% dos casos de teste.
+- [x] Com o caos padrão (20%/10%), 50 cotações seguidas pelo comando: todas terminam em `QuoteSucceeded` ou `QuoteUnavailable` em até ~12 s, e nenhuma trava. *(`autoseguro quote ... --repeat 50 --no-cache`: 49 sucessos e 1 `retries_exhausted`; p50 0,08 s, p95 3,27 s, máximo 6,91 s; 1,46 tentativa por cotação em média.)*
+- [x] Com `docker-compose.chaos-down.yml` (100% de falha): após 5 falhas o breaker abre, e as chamadas seguintes respondem em < 50 ms com `circuit_open`. *(1ª cotação: 4 tentativas, `retries_exhausted`; 2ª: a 5ª falha abre o breaker; 3ª: 0 tentativas, 0 ms. `CHAOS_MODE=down pytest -m chaos` passou.)*
+- [x] Com `docker-compose.chaos-slow.yml` (0% de falha, 100% de lentidão): cada tentativa é cortada em ≤ 2.5 s, nenhuma cotação passa de ~12 s, e o resultado é `QuoteUnavailable`. *(4 tentativas de ~2,5 s, total de 11,45 s, `retries_exhausted`; a 2ª cotação abriu o breaker. `CHAOS_MODE=slow pytest -m chaos` passou.)*
+- [x] Payload com `data_inicio` inválida → `QuoteInvalid` com uma tentativa. *(Pelo `respx` com o 400 da API: o `QuoteRequest` tipado não deixa montar uma data inválida.)*
+- [x] Idade 76 → `QuoteRefused` com uma única tentativa. *(Contra a API real: 1 tentativa, 422 em 78 ms.)*
+- [x] Toda chamada deixa linhas em `quotes`, `quote_attempts` e `events` com o mesmo `quote_id`. *(`tests/integration/test_quote_store_postgres.py` + conferência no banco depois das rodadas manuais.)*
+- [x] O preço devolvido bate com o oráculo em 100% dos casos de teste. *(17 casos em `tests/api/test_oracle_vs_api.py` contra a API real, com o caos padrão ligado.)*
+
+### Achados da validação
+
+- **CLI no console do Windows:** imprimir "→" num console cp1252 derrubava o processo. Corrigido (saída com `errors="replace"` e "->" no lugar da seta).
+- **Cotação sem desfecho:** esse crash deixou uma linha em `agent.quotes` com `status = 'pending'`. Se o processo morre no meio de uma cotação, ela fica assim. Está registrado como limitação; o worker do B4 pode tratar cotações `pending` antigas como abandonadas.
 
 ## Testes
 
 **Integração (`respx`, sem rede):**
-- [ ] 503 → 503 → 200: sucesso com `attempts=3`.
-- [ ] timeout → 200: sucesso com `attempts=2`.
-- [ ] 4 × 500: `QuoteUnavailable(retries_exhausted)`.
-- [ ] 422 `cotacao_recusada`: `QuoteRefused`, 1 tentativa.
-- [ ] 422 `{"detail": [...]}` (validação do FastAPI): `QuoteInvalid`, 1 tentativa.
-- [ ] 422 "Plano inexistente": `QuoteInvalid`.
-- [ ] 400: `QuoteInvalid`, 1 tentativa.
-- [ ] 200 com JSON inválido → 200 válido: sucesso.
-- [ ] Prazo total estoura antes do limite de tentativas: `QuoteUnavailable(deadline)`.
-- [ ] Breaker: 5 falhas → aberto → chamada não sai (`respx` confirma 0 chamadas) → após 30 s (relógio injetado) → meio-aberto → sucesso fecha.
-- [ ] Cache: segunda chamada igual não chama a API; uma falha não entra no cache.
+- [x] 503 → 503 → 200: sucesso com `attempts=3`.
+- [x] timeout → 200: sucesso com `attempts=2`.
+- [x] 4 × 500: `QuoteUnavailable(retries_exhausted)`.
+- [x] 422 `cotacao_recusada`: `QuoteRefused`, 1 tentativa.
+- [x] 422 `{"detail": [...]}` (validação do FastAPI): `QuoteInvalid`, 1 tentativa.
+- [x] 422 "Plano inexistente": `QuoteInvalid`.
+- [x] 400: `QuoteInvalid`, 1 tentativa.
+- [x] 200 com JSON inválido → 200 válido: sucesso.
+- [x] Prazo total estoura antes do limite de tentativas: `QuoteUnavailable(deadline)`.
+- [x] Breaker: 5 falhas → aberto → chamada não sai (`respx` confirma 0 chamadas) → após 30 s (relógio injetado) → meio-aberto → sucesso fecha.
+- [x] Cache: segunda chamada igual não chama a API; uma falha não entra no cache.
 
 **Unitários:** classificação de erro, cálculo de backoff (com `random` injetado), breaker, chave de cache.
 
 **Caos (marcados `@pytest.mark.chaos`, rodam contra o container):** cenários de 100% de falha e 100% de lentidão.
 
-**Oráculo vs API:** tabela de casos (cada faixa etária, cada faixa de idade do veículo, CEP de risco, sem CEP, pro-rata, dia 1º) comparando a API real com o oráculo.
+**Oráculo vs API:** tabela de casos (cada faixa etária, cada faixa de idade do veículo, os 5 prefixos de CEP de risco, pro-rata, dia 1º, as 4 recusas) comparando a API real com o oráculo. *Sem CEP ficou de fora: o agente sempre manda CEP.*
 
 ## Fora do escopo
 
@@ -165,4 +171,4 @@ Reimplementa `plans.json` (faixa etária, idade do veículo, região, pro-rata) 
 - `time.sleep` no servidor ocupa uma thread do servidor mesmo depois que o cliente desiste. Não é problema nosso, mas vale a nota no README.
 - Relógio e aleatoriedade sempre injetados, para os testes não ficarem instáveis.
 - **Virada do ano.** A API calcula a idade do veículo com a data do servidor. Testes contra a API real devem usar anos **relativos** (`hoje.year - 3`, `hoje.year - 21`), nunca fixos. Com ano fixo, um teste de "carro 2005 recusado" passa hoje e o de "carro 2006 aceito" quebra em 1º/jan/2027, provavelmente durante a avaliação.
-- Não usar `max_retries` do `httpx` e `tenacity` ao mesmo tempo (retry em duas camadas).
+- Não ligar o retry de transporte do `httpx` (`retries` no transport): seria retry em duas camadas.
