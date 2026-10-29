@@ -45,10 +45,22 @@ uv run autoseguro doctor
 
 ```bash
 cd agent
-uv run pytest            # testes de banco usam o Postgres do compose (pulam se não houver)
+uv run pytest -m "not chaos"   # banco e API usam o compose (os testes pulam se não houver)
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
+```
+
+### Cotar direto na API (sem LLM)
+
+O cliente da cotação faz timeout, retry com backoff e circuit breaker, e grava cada tentativa
+no Postgres. Para ver isso funcionando:
+
+```bash
+cd agent
+uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 21310-100 --inicio 15/11
+# 50 cotações seguidas, sem cache, com resumo de tempos e desfechos
+uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 01310-100 --repeat 50 --no-cache
 ```
 
 ### Simular falhas da API de cotação
@@ -60,6 +72,13 @@ docker compose -f docker-compose.yml -f docker-compose.chaos-down.yml up -d quot
 docker compose -f docker-compose.yml -f docker-compose.chaos-slow.yml up -d quote-api
 # Voltar ao comportamento padrão (20% de falha, 10% de lentidão)
 docker compose up -d quote-api
+```
+
+Com a API em um desses modos, os testes de caos conferem o comportamento do cliente:
+
+```bash
+cd agent
+CHAOS_MODE=down uv run pytest -m chaos   # ou CHAOS_MODE=slow
 ```
 
 ## Estrutura

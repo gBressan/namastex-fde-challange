@@ -2,9 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
+import sys
+from collections.abc import AsyncIterator, Coroutine
+from contextlib import asynccontextmanager
+from typing import Any
+
 import psycopg
 from alembic import command
 from alembic.config import Config
+from psycopg_pool import AsyncConnectionPool
 
 from autoseguro.config import Settings
 
@@ -27,6 +34,26 @@ def migrate(settings: Settings, revision: str = "head") -> None:
 
 def downgrade(settings: Settings, revision: str = "base") -> None:
     command.downgrade(alembic_config(settings), revision)
+
+
+@asynccontextmanager
+async def open_pool(settings: Settings, *, max_size: int = 5) -> AsyncIterator[AsyncConnectionPool]:
+    pool = AsyncConnectionPool(settings.database_url, min_size=1, max_size=max_size, open=False)
+    await pool.open(wait=True, timeout=10)
+    try:
+        yield pool
+    finally:
+        await pool.close()
+
+
+def run_async[T](coro: Coroutine[Any, Any, T]) -> T:
+    """`asyncio.run` que funciona com o psycopg assíncrono também no Windows.
+
+    O psycopg async não suporta o ProactorEventLoop (padrão do Windows), só o Selector.
+    """
+    if sys.platform == "win32":
+        return asyncio.run(coro, loop_factory=asyncio.SelectorEventLoop)
+    return asyncio.run(coro)
 
 
 def ping(settings: Settings) -> str:

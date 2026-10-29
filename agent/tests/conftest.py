@@ -1,14 +1,25 @@
 from __future__ import annotations
 
+import asyncio
 import os
+import sys
 import uuid
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 
+import httpx
 import psycopg
 import pytest
 from psycopg import sql
 
 from autoseguro.config import Settings
+
+if sys.platform == "win32":
+    # O psycopg assíncrono não funciona com o ProactorEventLoop, padrão do Windows.
+    # O hook só pode existir aqui: se existir e devolver None, o pytest-asyncio aborta.
+    def pytest_asyncio_loop_factories(
+        config: pytest.Config, item: pytest.Item
+    ) -> Mapping[str, Callable[[], asyncio.AbstractEventLoop]]:
+        return {"selector": asyncio.SelectorEventLoop}
 
 
 @pytest.fixture
@@ -36,3 +47,17 @@ def fresh_database() -> Iterator[Settings]:
             admin.execute(
                 sql.SQL("DROP DATABASE IF EXISTS {} WITH (FORCE)").format(sql.Identifier(name))
             )
+
+
+@pytest.fixture
+def quote_api_url() -> str:
+    """URL da quote-api rodando (docker compose). Sem ela, o teste é pulado; com
+    REQUIRE_API=1 (CI), falha."""
+    url = Settings(_env_file=None).quote_api_url
+    try:
+        httpx.get(f"{url}/health", timeout=3).raise_for_status()
+    except httpx.HTTPError as exc:
+        if os.getenv("REQUIRE_API") == "1":
+            raise
+        pytest.skip(f"quote-api indisponível em {url}: {exc}")
+    return url

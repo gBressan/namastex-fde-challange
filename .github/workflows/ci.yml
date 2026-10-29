@@ -28,13 +28,22 @@ jobs:
 
     env:
       DATABASE_URL: postgresql://autoseguro:autoseguro@localhost:5432/autoseguro
-      # Na CI, teste de banco sem Postgres é falha, não "skip".
+      QUOTE_API_URL: http://localhost:8000
+      # Na CI, teste de banco ou de API sem o serviço é falha, não "skip".
       REQUIRE_DB: "1"
+      REQUIRE_API: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: astral-sh/setup-uv@v6
+      - name: Subir a quote-api (com o caos padrão)
+        working-directory: .
+        run: |
+          docker compose up -d --build quote-api
+          for i in $(seq 1 30); do curl -fs localhost:8000/health && exit 0; sleep 2; done
+          docker compose logs quote-api; exit 1
+
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.12"
           enable-cache: true
