@@ -15,10 +15,12 @@ Ter um repositório que sobe com um comando, roda testes e CI, e já contém os 
 ## Tarefas
 
 ### Repositório
-- [x] Trazer o desafio **com o histórico** para `C:\code\namastex-fde-challange` (`git init` + remote `upstream` + `pull` do commit `52a006c`). Não é um fork do GitHub: o histórico original fica, e qualquer um confere o que mudou com `git diff 52a006c`.
+- [x] Trazer o desafio para `C:\code\namastex-fde-challange` a partir do commit `52a006c` do repositório da Namastex. Não é um fork do GitHub.
+  - *Primeira versão:* o histórico original vinha junto (os 5 commits da Namastex). Efeito colateral: o autor do desafio aparecia como contribuidor do repositório.
+  - *Decisão final (29/10/2026):* o histórico foi reescrito. O primeiro commit, no nome do autor, importa a árvore idêntica à do `52a006c` e cita a origem na mensagem; o B0 e o B1 foram refeitos por cima com `git rebase --rebase-merges` (conteúdo final idêntico, conferido com `git diff`).
 - [ ] Criar um repo público **novo** (vazio, sem README) no GitHub e adicioná-lo como remote `origin`.
 - [ ] `.gitattributes` com `* text=auto eol=lf`: o Git deste Windows está com `core.autocrlf=true`, e scripts `.sh` com CRLF quebram dentro dos containers Linux.
-- [ ] **`quote-service/`, `dataset/` e `scripts/` ficam intocados.** Conferível com `git diff 52a006c -- quote-service dataset scripts` (deve sair vazio). O `docker-compose.yml` da raiz é estendido, mas o serviço `quote-api` continua idêntico ao original. Guardar o README original como `docs/DESAFIO.md`.
+- [ ] **`quote-service/`, `dataset/` e `scripts/` ficam intocados.** Conferível com `git fetch https://github.com/namastexlabs/namastex-fde-challenge.git 52a006ca8ea571c3b9618be6886cb2ee20b6f6b8 && git diff FETCH_HEAD -- quote-service dataset scripts` (deve sair vazio). A CI faz essa checagem a cada push. O `docker-compose.yml` da raiz é estendido, mas o serviço `quote-api` continua idêntico ao original. Guardar o README original como `docs/DESAFIO.md`.
 - [ ] Criar `agent/` como projeto `uv` (`agent/pyproject.toml`, Python 3.12, layout `src/autoseguro/`).
 - [ ] Dependências de runtime: `langgraph`, `langgraph-checkpoint-postgres`, `langchain-openai`, `psycopg[binary,pool]`, `httpx`, `tenacity`, `pydantic`, `pydantic-settings`, `structlog`, `typer`, `rich`, `fastapi`, `uvicorn`, `alembic`, `sqlalchemy` (só para o Alembic), `duckdb`.
 - [ ] Dependências de dev: `pytest`, `pytest-asyncio`, `respx`, `testcontainers[postgres]`, `ruff`, `mypy`, `pre-commit`.

@@ -5,7 +5,7 @@ Cada card é um bloco de entrega independente, com objetivo, tarefas, especifica
 ## Antes de começar
 
 - [ ] **Avisar a Namastex que começou.** O README do desafio pede isso, para marcarem a conversa de feedback.
-- [ ] Criar o repositório público e trazer o desafio no commit `52a006c` (o último em 29/10/2026; ver B0).
+- [x] Criar o repositório público e trazer o desafio a partir do commit `52a006c` (o último em 29/10/2026; ver B0).
 - [ ] Criar o token do Hugging Face com a permissão "Make calls to Inference Providers" e conferir se os modelos candidatos (B2) estão disponíveis no router.
 - [ ] Guardar esta sessão de planejamento em `ai-logs/` desde já.
 

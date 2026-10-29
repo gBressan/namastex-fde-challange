@@ -91,8 +91,10 @@ scripts/               gerador do dataset (intocado)
 docs/                  proposta de arquitetura, cards de entrega, enunciado do desafio
 ```
 
-`quote-service/`, `dataset/` e `scripts/` estão idênticos ao commit `52a006c` do repositório
-do desafio. A CI confere isso a cada push (`git diff 52a006c -- quote-service dataset scripts`).
+O primeiro commit deste repositório importa o desafio exatamente como está no commit `52a006c`
+do [repositório da Namastex](https://github.com/namastexlabs/namastex-fde-challenge).
+`quote-service/`, `dataset/` e `scripts/` seguem idênticos a ele: a CI busca esse commit no
+GitHub da Namastex e compara a cada push.
 
 ## Documentação
 
