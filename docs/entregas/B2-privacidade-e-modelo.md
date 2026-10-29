@@ -34,6 +34,7 @@
 - [ ] Comando `autoseguro data silver`.
 
 ### Modelo
+- [ ] Serviço `ollama` no `docker-compose.yml` com perfil `local-llm` (veio do B0), com versão de imagem fixa, para rodar o `qwen3.5:9b` sem depender de provedor externo.
 - [ ] `llm/factory.py`: `get_chat_model(settings, purpose)` → `ChatOpenAI` apontando para `LLM_BASE_URL` (com `max_retries=0`: o retry é nosso, numa camada só).
 - [ ] `llm/extractor.py`: interface `Extractor.extract(state) -> Extraction`, com `LLMExtractor` (produção) e `ScriptedExtractor` (testes: devolve a extração escrita no YAML do cenário). Motivo: o `GenericFakeChatModel` do LangChain não suporta tool calling, então não dá para testar `with_structured_output` com ele.
 - [ ] `llm/schemas.py`: `Extraction` (Pydantic), o formato de saída da extração.

@@ -31,13 +31,14 @@ Ter um repositório que sobe com um comando, roda testes e CI, e já contém os 
 - [ ] `docker-compose.yml` na raiz com os serviços:
   - `quote-api` (build de `./quote-service`, mesmas variáveis de caos do original);
   - `postgres` (imagem `postgres:17`, volume nomeado, `healthcheck` com `pg_isready`);
-  - `agent` (build de `./agent`, `depends_on: postgres: condition: service_healthy`);
-  - perfil `local-llm` com `ollama` (opcional, usado no B2).
+  - `migrate` (build de `./agent`, roda `autoseguro db migrate` e termina; espera o `postgres` ficar `healthy`);
+  - `agent` (perfil `cli`, usado com `docker compose run --rm agent autoseguro <comando>`; espera o `migrate` terminar com sucesso). Ainda não há um processo de longa duração: o webhook entra no B5.
+  - O serviço `ollama` (perfil `local-llm`) foi movido para o B2, onde é usado.
 - [ ] Dois overrides de caos, usados no B1 e no B4:
   - `docker-compose.chaos-down.yml`: `QUOTE_FAILURE_RATE=1.0` (API fora do ar);
   - `docker-compose.chaos-slow.yml`: `QUOTE_FAILURE_RATE=0.0` **e** `QUOTE_SLOW_RATE=1.0`. A API sorteia um único número e testa a falha primeiro; só mudar o `SLOW_RATE` daria 20% de falha e 80% de lentidão.
   - As taxas são lidas quando a API sobe, então trocar de modo exige recriar o container: `docker compose -f docker-compose.yml -f docker-compose.chaos-down.yml up -d quote-api`.
-- [ ] `Makefile` ou `justfile` com atalhos: `up`, `down`, `test`, `lint`, `migrate`, `chat`.
+- [x] ~~`Makefile` ou `justfile`~~ — descartado: o `make` não existe no Windows do autor e o `just` seria mais uma instalação. Os comandos ficam no README e no CLI `autoseguro`.
 
 ### Banco
 - [ ] Alembic configurado em `agent/migrations/`, com a migração inicial criando os schemas `agent` (tabelas abaixo) e `langgraph` (vazio). As tabelas do checkpointer são criadas pelo `AsyncPostgresSaver.setup()` no B3.
@@ -121,7 +122,7 @@ class QuoteResult(BaseModel):        # espelha a resposta 200 da API
 
 ## Critérios de aceite
 
-- [ ] `docker compose up -d` sobe os três serviços; `postgres` fica `healthy`; `curl localhost:8000/health` responde.
+- [ ] `docker compose up -d --build` sobe `quote-api` e `postgres` (`healthy`), o `migrate` termina com código 0, e `docker compose run --rm agent autoseguro doctor` mostra os dois serviços acessíveis.
 - [ ] As migrações rodam do zero sem erro e de forma idempotente.
 - [ ] `uv run pytest` passa, com testes dos normalizadores cobrindo os casos da tabela acima e as bordas (CEP com 7 dígitos, `"ano 05"`, `"29/02"`, data passada).
 - [ ] A CI está verde no primeiro PR.

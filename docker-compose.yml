@@ -1,4 +1,5 @@
 services:
+  # Serviço original do desafio, mantido idêntico.
   quote-api:
     build: ./quote-service
     ports:
@@ -10,3 +11,53 @@ services:
       QUOTE_SLOW_SECONDS: "8"
       # QUOTE_SEED: "42"   # descomente p/ falhas reproduziveis
     restart: unless-stopped
+
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: autoseguro
+      POSTGRES_PASSWORD: autoseguro
+      POSTGRES_DB: autoseguro
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U autoseguro -d autoseguro"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    restart: unless-stopped
+
+  # Aplica as migrações e termina. Os outros serviços do agente esperam por ele.
+  migrate:
+    build: ./agent
+    command: ["autoseguro", "db", "migrate"]
+    environment:
+      DATABASE_URL: postgresql://autoseguro:autoseguro@postgres:5432/autoseguro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  # Agente pela linha de comando: docker compose run --rm agent autoseguro <comando>
+  agent:
+    build: ./agent
+    profiles: ["cli"]
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      QUOTE_API_URL: http://quote-api:8000
+      DATABASE_URL: postgresql://autoseguro:autoseguro@postgres:5432/autoseguro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      quote-api:
+        condition: service_started
+    stdin_open: true
+    tty: true
+    command: ["autoseguro", "doctor"]
+
+volumes:
+  pgdata:

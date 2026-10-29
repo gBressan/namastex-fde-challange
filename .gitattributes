@@ -1,0 +1,5 @@
+# Fins de linha LF no repositório e no checkout: scripts com CRLF quebram nos containers Linux.
+* text=auto eol=lf
+
+*.parquet binary
+*.png binary

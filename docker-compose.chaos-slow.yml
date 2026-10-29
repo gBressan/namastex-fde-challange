@@ -1,0 +1,10 @@
+# API de cotação lenta: toda chamada à /quote demora 8 s (e depois responde com sucesso).
+# A API sorteia um número só e testa a falha primeiro, então a taxa de falha precisa ser 0;
+# senão seriam 20% de falha e 80% de lentidão.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.chaos-slow.yml up -d quote-api
+# Voltar ao normal: docker compose up -d quote-api
+services:
+  quote-api:
+    environment:
+      QUOTE_FAILURE_RATE: "0.0"
+      QUOTE_SLOW_RATE: "1.0"
