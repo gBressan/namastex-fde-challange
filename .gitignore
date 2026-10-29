@@ -9,6 +9,7 @@ venv/
 # env / secrets (NUNCA commitar)
 .env
 .env.*
+!.env.example
 *.key
 *.pem
 
@@ -17,6 +18,14 @@ venv/
 .idea/
 .vscode/
 *.log
+
+# Ferramentas
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+
+# Saídas geradas pela pipeline de dados (reproduzíveis por comando)
+/data/
 
 # ...mas os logs de IA são entregável — ver README (Transparência de uso de IA)
 !ai-logs/**

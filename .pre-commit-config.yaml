@@ -1,0 +1,23 @@
+# Instalar (na raiz do repo): uv run --project agent pre-commit install
+# Hooks locais: usam as versões travadas no uv.lock, sem baixar nada a mais.
+repos:
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check
+        entry: uv run --directory agent ruff check --fix
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: ruff-format
+        name: ruff format
+        entry: uv run --directory agent ruff format
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: mypy
+        name: mypy
+        entry: uv run --directory agent mypy
+        language: system
+        types: [python]
+        pass_filenames: false

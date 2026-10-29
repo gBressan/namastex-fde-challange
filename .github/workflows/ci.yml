@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  agent:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: agent
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: autoseguro
+          POSTGRES_PASSWORD: autoseguro
+          POSTGRES_DB: autoseguro
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U autoseguro -d autoseguro"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
+
+    env:
+      DATABASE_URL: postgresql://autoseguro:autoseguro@localhost:5432/autoseguro
+      # Na CI, teste de banco sem Postgres é falha, não "skip".
+      REQUIRE_DB: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+
+      - name: Instalar dependências
+        run: uv sync --frozen
+
+      - name: Lint
+        run: uv run ruff check .
+
+      - name: Formatação
+        run: uv run ruff format --check .
+
+      - name: Tipos
+        run: uv run mypy
+
+      - name: Testes
+        run: uv run pytest -m "not chaos and not data"
+
+      - name: quote-service, dataset e scripts intocados
+        working-directory: .
+        run: |
+          git fetch --no-tags --depth=1 https://github.com/namastexlabs/namastex-fde-challenge.git 52a006ca8ea571c3b9618be6886cb2ee20b6f6b8
+          git diff --exit-code FETCH_HEAD -- quote-service dataset scripts

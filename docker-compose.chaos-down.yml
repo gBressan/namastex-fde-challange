@@ -1,0 +1,8 @@
+# API de cotação fora do ar: toda chamada à /quote falha com 5xx.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.chaos-down.yml up -d quote-api
+# Voltar ao normal: docker compose up -d quote-api
+services:
+  quote-api:
+    environment:
+      QUOTE_FAILURE_RATE: "1.0"
+      QUOTE_SLOW_RATE: "0.0"
