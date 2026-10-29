@@ -122,11 +122,17 @@ class QuoteResult(BaseModel):        # espelha a resposta 200 da API
 
 ## Critérios de aceite
 
-- [ ] `docker compose up -d --build` sobe `quote-api` e `postgres` (`healthy`), o `migrate` termina com código 0, e `docker compose run --rm agent autoseguro doctor` mostra os dois serviços acessíveis.
-- [ ] As migrações rodam do zero sem erro e de forma idempotente.
-- [ ] `uv run pytest` passa, com testes dos normalizadores cobrindo os casos da tabela acima e as bordas (CEP com 7 dígitos, `"ano 05"`, `"29/02"`, data passada).
-- [ ] A CI está verde no primeiro PR.
-- [ ] Um engenheiro novo consegue subir o ambiente seguindo só a seção "Como rodar" do README (rascunho).
+- [x] `docker compose up -d --build` sobe `quote-api` e `postgres` (`healthy`), o `migrate` termina com código 0, e `docker compose run --rm agent autoseguro doctor` mostra os dois serviços acessíveis. *(Verificado em 29/10/2026: Postgres 17.11, `migrate` com `Exited (0)`.)*
+- [x] As migrações rodam do zero sem erro e de forma idempotente. *(`tests/integration/test_migrations.py`, num banco descartável; o `migrate` também rodou duas vezes no compose.)*
+- [x] `uv run pytest` passa, com testes dos normalizadores cobrindo os casos da tabela acima e as bordas (CEP com 7 dígitos, `"ano 05"`, `"29/02"`, data passada). *(`REQUIRE_DB=1 uv run pytest`: 88 passaram, nenhum pulado.)*
+- [ ] A CI está verde no primeiro PR. *(Pendente: o repositório ainda não está no GitHub.)*
+- [ ] Um engenheiro novo consegue subir o ambiente seguindo só a seção "Como rodar" do README (rascunho). *(Fica para o teste de clone limpo do B7.)*
+
+### Verificações extras contra a API real
+
+- A resposta real da `/quote` para completo / 35 anos / 2022 / CEP 01310-100 / início 15/07 é idêntica à usada em `tests/unit/test_models.py` e valida em `QuoteResult` (prêmio `209.9`, pro-rata `115.11` em `Decimal`).
+- Payload sem `idade` → **422 do FastAPI** (`{"detail": [...]}`), confirmando que o 422 tem dois significados (ver B1).
+- Veículo `2027` → 422 `cotacao_recusada`, "Idade do veiculo fora das faixas aceitas.", confirmando a armadilha do ano-modelo.
 
 ## Fora do escopo
 
