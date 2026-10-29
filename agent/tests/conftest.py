@@ -13,14 +13,13 @@ from psycopg import sql
 
 from autoseguro.config import Settings
 
-
-def pytest_asyncio_loop_factories(
-    config: pytest.Config, item: pytest.Item
-) -> Mapping[str, Callable[[], asyncio.AbstractEventLoop]] | None:
+if sys.platform == "win32":
     # O psycopg assíncrono não funciona com o ProactorEventLoop, padrão do Windows.
-    if sys.platform == "win32":
+    # O hook só pode existir aqui: se existir e devolver None, o pytest-asyncio aborta.
+    def pytest_asyncio_loop_factories(
+        config: pytest.Config, item: pytest.Item
+    ) -> Mapping[str, Callable[[], asyncio.AbstractEventLoop]]:
         return {"selector": asyncio.SelectorEventLoop}
-    return None
 
 
 @pytest.fixture
