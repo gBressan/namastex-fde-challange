@@ -6,7 +6,7 @@
 | Depende de | — |
 | Desbloqueia | B1, B2 |
 | Critério da avaliação | Qualidade ("outro engenheiro consegue pegar seu código e entender") |
-| Status | ☐ A fazer |
+| Status | ☑ Pronto (o teste de clone limpo fica no B7) |
 
 ## Objetivo
 
@@ -125,7 +125,7 @@ class QuoteResult(BaseModel):        # espelha a resposta 200 da API
 - [x] `docker compose up -d --build` sobe `quote-api` e `postgres` (`healthy`), o `migrate` termina com código 0, e `docker compose run --rm agent autoseguro doctor` mostra os dois serviços acessíveis. *(Verificado em 29/10/2026: Postgres 17.11, `migrate` com `Exited (0)`.)*
 - [x] As migrações rodam do zero sem erro e de forma idempotente. *(`tests/integration/test_migrations.py`, num banco descartável; o `migrate` também rodou duas vezes no compose.)*
 - [x] `uv run pytest` passa, com testes dos normalizadores cobrindo os casos da tabela acima e as bordas (CEP com 7 dígitos, `"ano 05"`, `"29/02"`, data passada). *(`REQUIRE_DB=1 uv run pytest`: 88 passaram, nenhum pulado.)*
-- [ ] A CI está verde no primeiro PR. *(Pendente: o repositório ainda não está no GitHub.)*
+- [x] A CI está verde. *(Primeira execução no push do branch `b0-fundacao`: [run 40927842627](https://github.com/gBressan/namastex-fde-challange/actions/runs/40927842627), todas as etapas com sucesso, inclusive a checagem de que `quote-service/`, `dataset/` e `scripts/` estão intocados.)*
 - [ ] Um engenheiro novo consegue subir o ambiente seguindo só a seção "Como rodar" do README (rascunho). *(Fica para o teste de clone limpo do B7.)*
 
 ### Verificações extras contra a API real

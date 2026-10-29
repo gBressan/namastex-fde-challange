@@ -13,7 +13,7 @@ Cada card é um bloco de entrega independente, com objetivo, tarefas, especifica
 
 | Card | Prioridade | Depende de | Critério da avaliação | Status |
 |---|---|---|---|---|
-| [B0 — Fundação](B0-fundacao.md) | P0 | — | Qualidade | ◐ Falta só a CI no GitHub |
+| [B0 — Fundação](B0-fundacao.md) | P0 | — | Qualidade | ☑ Pronto |
 | [B1 — Cotação resiliente](B1-cotacao-resiliente.md) | P0 ⭐ | B0 | Falha da `/quote`, rastreabilidade | ☐ A fazer |
 | [B2 — Privacidade e escolha do modelo](B2-privacidade-e-modelo.md) | P0 | B0 | Dados sensíveis | ☐ A fazer |
 | [B3 — Agente MVP](B3-agente-mvp.md) | P0 | B1, B2 | Ponta a ponta, rastreabilidade | ☐ A fazer |
