@@ -61,7 +61,7 @@ jobs:
         run: uv run mypy
 
       - name: Testes
-        run: uv run pytest -m "not chaos and not data"
+        run: uv run pytest -m "not chaos"
 
       - name: quote-service, dataset e scripts intocados
         working-directory: .

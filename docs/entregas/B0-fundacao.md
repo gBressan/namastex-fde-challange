@@ -35,7 +35,7 @@ Ter um repositório que sobe com um comando, roda testes e CI, e já contém os 
   - `postgres` (imagem `postgres:17`, volume nomeado, `healthcheck` com `pg_isready`);
   - `migrate` (build de `./agent`, roda `autoseguro db migrate` e termina; espera o `postgres` ficar `healthy`);
   - `agent` (perfil `cli`, usado com `docker compose run --rm agent autoseguro <comando>`; espera o `migrate` terminar com sucesso). Ainda não há um processo de longa duração: o webhook entra no B5.
-  - O serviço `ollama` (perfil `local-llm`) foi movido para o B2, onde é usado.
+  - O serviço `ollama` (perfil `local-llm`) foi movido para o B2 e depois descartado: o modelo é usado só pela API do Hugging Face.
 - [ ] Dois overrides de caos, usados no B1 e no B4:
   - `docker-compose.chaos-down.yml`: `QUOTE_FAILURE_RATE=1.0` (API fora do ar);
   - `docker-compose.chaos-slow.yml`: `QUOTE_FAILURE_RATE=0.0` **e** `QUOTE_SLOW_RATE=1.0`. A API sorteia um único número e testa a falha primeiro; só mudar o `SLOW_RATE` daria 20% de falha e 80% de lentidão.

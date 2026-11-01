@@ -11,6 +11,7 @@ from collections import Counter
 from collections.abc import Mapping
 from dataclasses import asdict
 from datetime import date
+from pathlib import Path
 from typing import Annotated, Any
 from uuid import UUID
 
@@ -21,8 +22,22 @@ from rich.console import Console
 
 from autoseguro import db
 from autoseguro.config import Settings, get_settings
+from autoseguro.data.silver import DEFAULT_DATASET, DEFAULT_SILVER, build_silver, find_leaks
 from autoseguro.domain.models import PlanId, QuoteRequest
 from autoseguro.domain.normalizers import normalize_cep, parse_data_inicio
+from autoseguro.eval.extraction import (
+    Sample,
+    SampleResult,
+    evaluate,
+    load_samples,
+    render_markdown,
+    results_to_json,
+    summarize,
+    warm_up,
+)
+from autoseguro.llm.extractor import LLMExtractor
+from autoseguro.llm.factory import get_chat_model, resolve_api_key
+from autoseguro.llm.ollama import ollama_status
 from autoseguro.log import configure_logging
 from autoseguro.quote.cache import QuoteCache
 from autoseguro.quote.client import QuoteClient, QuoteClientConfig
@@ -84,8 +99,30 @@ def doctor() -> None:
         ok = False
         console.print(f"[red]✗[/red] quote-api inacessível: {exc}")
 
-    llm_key = "configurada" if settings.llm_api_key else "[yellow]não configurada[/yellow]"
-    console.print(f"  LLM: {settings.llm_model} via {settings.llm_base_url} (chave {llm_key})")
+    if settings.llm_provider == "ollama":
+        try:
+            status = ollama_status(settings)
+            if not status.downloaded:
+                ok = False
+                console.print(
+                    f"[red]✗[/red] Ollama no ar, mas {status.model} não foi baixado "
+                    "(docker compose up ollama-pull)"
+                )
+            elif not status.loaded:
+                console.print(
+                    f"[green]✓[/green] Ollama com {status.model} baixado "
+                    "(ainda não carregado; carrega na primeira chamada)"
+                )
+            else:
+                gpu = status.gpu_fraction or 0.0
+                where = "100% GPU" if gpu >= 0.999 else f"{gpu:.0%} GPU / {1 - gpu:.0%} CPU"
+                console.print(f"[green]✓[/green] Ollama com {status.model} carregado: {where}")
+        except httpx.HTTPError as exc:
+            ok = False
+            console.print(f"[red]✗[/red] Ollama inacessível em {settings.ollama_base_url}: {exc}")
+    else:
+        llm_key = "encontrada" if resolve_api_key(settings) else "[yellow]não encontrada[/yellow]"
+        console.print(f"  LLM: {settings.llm_model} via {settings.llm_base_url} (chave {llm_key})")
 
     if not ok:
         raise typer.Exit(code=1)
@@ -246,3 +283,97 @@ def _print_summary(results: list[tuple[QuoteOutcome, float]]) -> None:
         f"p95 {p95:.2f} s, máx {durations[-1]:.2f} s"
     )
     console.print(f"  tentativas: média {statistics.mean(attempts):.2f}, máx {max(attempts)}")
+
+
+# --- autoseguro data ----------------------------------------------------------------------
+
+data_app = typer.Typer(help="Pipeline de dados do histórico de conversas.", no_args_is_help=True)
+app.add_typer(data_app, name="data")
+
+
+@data_app.command("silver")
+def data_silver(
+    dataset: Annotated[Path, typer.Option(help="Parquet original (Bronze).")] = DEFAULT_DATASET,
+    out: Annotated[Path, typer.Option(help="Onde gravar a Silver.")] = DEFAULT_SILVER,
+) -> None:
+    """Gera a camada Silver: mensagens de lead ordenadas, mascaradas e com gabarito."""
+    settings = get_settings()
+    stats = build_silver(dataset, out, salt=settings.pseudonym_salt.get_secret_value())
+    console.print(f"Silver gravada em {out}")
+    console.print(f"  {stats.messages} mensagens de lead em {stats.conversations} conversas")
+    for pii_type, count in stats.masked.items():
+        console.print(f"  {pii_type.value} mascarados: {count}")
+
+    leaks = find_leaks(out)
+    if leaks:
+        console.print(f"[red]{len(leaks)} mensagens ainda com dado pessoal[/red]")
+        raise typer.Exit(code=1)
+    console.print("[green]Nenhum dado pessoal no texto mascarado.[/green]")
+
+
+# --- autoseguro eval ----------------------------------------------------------------------
+
+eval_app = typer.Typer(
+    help="Avaliações offline com o histórico de conversas.", no_args_is_help=True
+)
+app.add_typer(eval_app, name="eval")
+
+
+async def _warm_up_and_evaluate(
+    extractor: LLMExtractor, samples: list[Sample], concurrency: int
+) -> list[SampleResult]:
+    # No mesmo event loop: o cliente HTTP do modelo fica preso ao loop em que foi usado.
+    # Uma chamada fora da medição antes, porque a primeira carrega o modelo (no Ollama, na GPU).
+    await warm_up(extractor)
+    return await evaluate(extractor, samples, concurrency=concurrency)
+
+
+@eval_app.command("extraction")
+def eval_extraction(
+    model: Annotated[
+        list[str], typer.Option(help="Modelo(s) a comparar, ex.: Qwen/Qwen3.5-27B:deepinfra.")
+    ],
+    n: Annotated[int, typer.Option(help="Conversas sorteadas da Silver.")] = 30,
+    seed: Annotated[int, typer.Option(help="Semente do sorteio.")] = 42,
+    concurrency: Annotated[int, typer.Option(help="Chamadas simultâneas.")] = 4,
+    silver: Annotated[Path, typer.Option(help="Camada Silver.")] = DEFAULT_SILVER,
+    out_dir: Annotated[Path, typer.Option(help="Onde gravar os resultados por conversa.")] = (
+        DEFAULT_SILVER.parents[1] / "eval"
+    ),
+    report: Annotated[
+        Path | None, typer.Option(help="Arquivo Markdown para a tabela comparativa.")
+    ] = None,
+) -> None:
+    """Mede acurácia, erros, latência e custo de cada modelo na extração de dados."""
+    settings = get_settings()
+    if not silver.exists():
+        raise typer.BadParameter(f"{silver} não existe: rode `autoseguro data silver`.")
+    samples = load_samples(silver, n, seed)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    summaries = []
+    for model_id in model:
+        console.print(f"[bold]{model_id}[/bold]: {len(samples)} conversas…")
+        extractor = LLMExtractor(get_chat_model(settings, model=model_id))
+        results = db.run_async(_warm_up_and_evaluate(extractor, samples, concurrency))
+        summary = summarize(model_id, results)
+        summaries.append(summary)
+        slug = model_id.replace("/", "__").replace(":", "--")
+        (out_dir / f"extraction_{slug}.json").write_text(
+            json.dumps(
+                {"summary": summary, "results": results_to_json(results)},
+                ensure_ascii=False,
+                indent=2,
+            ),
+            encoding="utf-8",
+        )
+        errors = [r.error for r in results if r.error]
+        if errors:
+            console.print(f"  [yellow]{len(errors)} erro(s); o primeiro: {errors[0]}[/yellow]")
+
+    table = render_markdown(summaries)
+    console.print(table)
+    if report:
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(table, encoding="utf-8")
+        console.print(f"Tabela gravada em {report}")
