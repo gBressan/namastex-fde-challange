@@ -12,25 +12,40 @@ um humano.
 ### Pré-requisitos
 
 - **Docker** (com Docker Compose). É obrigatório: além da API de cotação, o agente guarda
-  estado, eventos e a fila de cotações pendentes no Postgres.
+  estado, eventos e a fila de cotações pendentes no Postgres, e o modelo de LLM roda no
+  container do Ollama.
 - **[uv](https://docs.astral.sh/uv/)**, para rodar o agente e os testes fora do container.
+- **GPU NVIDIA** (opcional, recomendada): o modelo (Qwen 3.5 4B, ~3,3 GB) também roda na CPU,
+  só que bem mais devagar.
 
 ### Subir o ambiente
 
 ```bash
-cp .env.example .env          # depois preencha LLM_API_KEY
-docker compose up -d --build  # quote-api + postgres + migrações
+cp .env.example .env
+# Com GPU NVIDIA:
+docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d --build
+# Sem GPU:
+docker compose up -d --build
 docker compose run --rm agent autoseguro doctor
 ```
 
-O `doctor` confere se o Postgres e a API de cotação estão acessíveis. Os serviços:
+Na primeira vez, o `ollama-pull` baixa o modelo (~3,3 GB) para um volume do Docker. O `doctor`
+confere Postgres, quote-api e Ollama, e mostra se o modelo está rodando na GPU:
+
+```
+✓ Ollama com qwen3.5:4b carregado: 100% GPU
+```
 
 | Serviço | Porta | O que é |
 |---|---|---|
 | `quote-api` | 8000 | API de cotação do desafio, sem alterações |
 | `postgres` | 5432 (`POSTGRES_PORT`) | Estado das conversas, eventos, cotações, handoffs |
 | `migrate` | — | Aplica as migrações e termina |
+| `ollama` | 11434 | LLM local (Qwen 3.5 4B), API compatível com a da OpenAI em `/v1` |
+| `ollama-pull` | — | Baixa o modelo uma vez e termina |
 | `agent` | — | CLI do agente (perfil `cli`, usado com `docker compose run`) |
+
+Para conferir a GPU por fora: `docker compose exec ollama ollama ps` (coluna `PROCESSOR`).
 
 ### Rodar o agente fora do container
 
@@ -70,12 +85,13 @@ uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 01310-100 -
 cd agent
 # Camada Silver: mensagens de lead mascaradas, com gabarito (grava em data/silver/)
 uv run autoseguro data silver
-# Compara modelos na extração (precisa de token do Hugging Face com créditos)
-uv run autoseguro eval extraction --model Qwen/Qwen3.5-27B:deepinfra --n 30
+# Mede a extração do modelo contra o gabarito (relatório em docs/eval/comparacao_modelos.md)
+uv run autoseguro eval extraction --model qwen3.5:4b --n 200 --concurrency 1
 ```
 
-O token do LLM vem de `LLM_API_KEY`, de `HF_TOKEN` ou do login do `hf` CLI
-(`hf auth login`). Dentro do Docker, use `LLM_API_KEY` ou `HF_TOKEN` no `.env`.
+O modelo padrão é o `qwen3.5:4b` no Ollama local. Para usar uma API (por exemplo, o router
+do Hugging Face), basta trocar `LLM_PROVIDER`, `LLM_BASE_URL` e `LLM_MODEL` no `.env`; o
+token vem de `LLM_API_KEY`, de `HF_TOKEN` ou do login do `hf` CLI.
 
 ### Simular falhas da API de cotação
 

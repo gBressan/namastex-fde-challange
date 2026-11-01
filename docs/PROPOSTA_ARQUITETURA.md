@@ -157,7 +157,7 @@ Usos:
 |---|---|---|
 | Linguagem/infra | Python 3.12 + `uv` + Docker Compose | O mesmo do `quote-service`; o avaliador sobe tudo com um comando. |
 | API do agente | FastAPI (`POST /webhook/messages` no formato de um webhook do WhatsApp) + CLI com Typer/Rich | O CLI serve para demo e geração de log; o webhook mostra que está pronto para Evolution API/Omni. |
-| LLM | Modelo aberto do Hugging Face, acessado por uma API compatível com OpenAI (`LLM_BASE_URL`, `LLM_MODEL`). **Qwen** via HF Inference Providers (o modelo exato sai da comparação do B2). Ver seção 9.1. | A família Qwen lidera tool calling entre modelos abertos, tem licença Apache 2.0 e vai bem em PT-BR. Trocar de modelo é só mudar configuração. |
+| LLM | **Qwen 3.5 4B local no Ollama** (container `ollama`, com GPU), pela API compatível com a da OpenAI. Trocar para uma API (ex.: router do Hugging Face) é só configuração. Ver seção 9.1. | A família Qwen lidera tool calling entre modelos abertos, tem licença Apache 2.0 e vai bem em PT-BR. Trocar de modelo é só mudar configuração. |
 | Orquestração | **LangGraph** (stack do autor). A máquina de estados é o `StateGraph`; o handoff é `interrupt()`; o estado da conversa fica no checkpointer Postgres (`langgraph-checkpoint-postgres`); as arestas condicionais chamam a handoff policy em Python puro. | O fluxo fica explícito e pode ser exportado como diagrama Mermaid para o README. O domínio (cliente de cotação, regras, guardrail) não importa nada do LangGraph. |
 | HTTP resiliente | `httpx` async + laço de retry e circuit breaker próprios | É explícito, testável com relógio injetado e fácil de explicar na entrevista. O `tenacity` foi avaliado e descartado no B1. |
 | Persistência | **Postgres 17** no `docker-compose`, com `psycopg` 3 (pool async). O checkpointer do LangGraph e as tabelas do domínio (`events`, `quotes`, `quote_attempts`, `handoffs`, `pending_quotes`) ficam no mesmo banco, em schemas separados. Migrações com Alembic, ou SQL versionado em `db/migrations`. | O avaliador já precisa de Docker para a quote-api, então o custo extra é zero. Ganhos: `JSONB` para eventos, `SKIP LOCKED` para a fila do retry diferido, o checkpointer oficial do LangGraph e o mesmo banco que seria usado em produção. |
@@ -171,11 +171,13 @@ Usos:
 
 | Uso | Modelo | Como servir |
 |---|---|---|
-| Padrão (o avaliador roda sem GPU) | `Qwen/Qwen3.5-27B` | HF Inference Providers: `https://router.huggingface.co/v1` + `HF_TOKEN`, usando `ChatOpenAI(base_url=...)` |
+| Padrão | `qwen3.5:4b` | Ollama no `docker-compose` (`http://ollama:11434/v1`), GPU via `docker-compose.gpu.yml`; sem token e sem custo |
+| Alternativa por configuração | `Qwen/Qwen3.5-27B:deepinfra` (ou outro) | HF Inference Providers: `https://router.huggingface.co/v1` + token |
 | Testes e CI | `ScriptedExtractor` / `ScriptedComposer` (implementações das interfaces `Extractor` e `Composer` que leem respostas do YAML do cenário) | Sem rede e sem token; os cenários golden ficam determinísticos. O `GenericFakeChatModel` do LangChain não suporta tool calling, então não serve para testar a saída estruturada. |
 
 - **Escolha baseada em dados:** no bloco B2, com a Silver mínima, rodar a avaliação de extração (cerca de 200 mensagens de lead da Silver, com `lead_idade_informada` e `veiculo_texto` como gabarito) em 3 candidatos Qwen: Qwen3.5-27B, Qwen3.8-27B (mais novo, ago/2026) e Qwen3.5-9B (menor e mais barato). Escolher pelo trio acurácia × latência × taxa de JSON inválido e colocar a tabela no README.
-- **Só API, sem modelo local** (decisão de 31/10/2026): num cenário real o agente consome a API do provedor; rodar o modelo local não acrescenta ao desafio.
+- **Modelo local no Ollama** (decisão final de 31/10/2026). A ideia inicial era usar só a API do Hugging Face, como num cenário real. Mas a conta gratuita do HF não tem créditos mensais (a chamada devolveu 402), e o objetivo é fazer o desafio sem custo. O `qwen3.5:4b` (3,3 GB, Q4) cabe inteiro na GPU disponível (RTX 4050, 6 GB). O código não depende do provedor: os dois falam a API da OpenAI, e trocar é só mudar `LLM_PROVIDER`, `LLM_BASE_URL` e `LLM_MODEL`.
+- **Ganho colateral:** quem avaliar o projeto não precisa de chave nenhuma, só do Docker.
 - **Desligar o "thinking"** na extração (`enable_thinking: false`), por latência. No WhatsApp, cada segundo conta.
 - **Saída estruturada:** preferir `with_structured_output(method="function_calling")`, porque o suporte a `json_schema` varia por provedor. Validar com Pydantic e repetir uma vez se o parse falhar.
 - **O LLM também é uma dependência instável.** Aplicar timeout e retry e, se ele falhar, cair para extração por regex (idade, ano, CEP) e respostas em template. O agente fica pior, mas não para. É o mesmo princípio usado na `/quote`.

@@ -6,7 +6,7 @@
 | Depende de | B0 |
 | Desbloqueia | B3, B6 |
 | Critério da avaliação | "Cuidado com dados sensíveis", qualidade das decisões |
-| Status | ◐ Falta rodar a comparação de modelos (sem créditos no HF) |
+| Status | ☑ Pronto (aguardando aprovação para o merge) |
 
 ## Objetivo
 
@@ -34,13 +34,15 @@
 - [x] Comando `autoseguro data silver` (gera, mostra quantos dados foram mascarados e varre o resultado atrás de vazamentos).
 
 ### Modelo
-- [x] ~~Serviço `ollama` no `docker-compose.yml`~~ — descartado (31/10/2026): o modelo é usado só pela API do Hugging Face, como num cenário real de produção. Rodar local não acrescenta ao desafio, e a GPU disponível (RTX 4050, 6 GB) só comportaria um modelo menor do que os avaliados.
-- [x] `llm/factory.py`: `get_chat_model(settings)` → `ChatOpenAI` apontando para `LLM_BASE_URL` (com `max_retries=0`: o retry é nosso, numa camada só). O token vem de `LLM_API_KEY` ou, se vazio, do login do `hf` CLI (`hf auth login`); no Docker, de `HF_TOKEN`.
+- [x] Serviço `ollama` no `docker-compose.yml` (imagem `ollama/ollama:0.40.5`), com `ollama-pull` para baixar o modelo uma vez e `docker-compose.gpu.yml` para dar acesso à GPU NVIDIA.
+  - *Histórico da decisão (31/10/2026):* primeiro o Ollama foi descartado em favor de usar só a API do Hugging Face. A conta gratuita do HF não tem créditos (402), e o objetivo é fazer o desafio sem custo; por isso a decisão final é o **`qwen3.5:4b` local**, que cabe inteiro na RTX 4050 (6 GB). Trocar para uma API é só configuração.
+- [x] `llm/ollama.py` + `autoseguro doctor`: mostram se o modelo está baixado, carregado e **quanto dele está na GPU** (`100% GPU`).
+- [x] `llm/factory.py`: `get_chat_model(settings)` → `ChatOpenAI` com `max_retries=0` (o retry é nosso, numa camada só). Provedor `ollama` (padrão: endpoint local, sem token, *thinking* desligado com `reasoning_effort: none`) ou `openai_compatible` (ex.: router do HF; token de `LLM_API_KEY`, `HF_TOKEN` ou login do `hf` CLI; *thinking* desligado com `chat_template_kwargs`).
 - [x] `llm/extractor.py`: interface `Extractor.extract(ExtractionInput) -> Extraction`, com `LLMExtractor` (produção) e `ScriptedExtractor` (testes: devolve a extração escrita no YAML do cenário). Motivo: o `GenericFakeChatModel` do LangChain não suporta tool calling, então não dá para testar `with_structured_output` com ele.
 - [x] `llm/schemas.py`: `Extraction` (Pydantic), o formato de saída da extração.
 - [x] `llm/prompts/extraction.md`: prompt versionado.
 - [x] `autoseguro/eval/extraction.py` + comando `autoseguro eval extraction`: compara candidatos e gera `docs/eval/comparacao_modelos.md`.
-- [ ] **Rodar a comparação.** Bloqueado: a conta do Hugging Face está sem créditos (HTTP 402, "You have no remaining credits"). O token do `hf` CLI foi aceito; falta só saldo.
+- [x] **Rodar a avaliação** com o `qwen3.5:4b` local: **100% em idade, ano e CEP nas 200 conversas**, 0 erros. Relatório em [`docs/eval/comparacao_modelos.md`](../eval/comparacao_modelos.md).
 
 ## Especificação
 
@@ -102,7 +104,7 @@ class Extraction(BaseModel):
 - Amostra: 200 conversas da Silver (semente fixa). Entrada: as mensagens do lead até a que contém idade, ano e CEP (e a seguinte).
 - O sorteio é feito por `ORDER BY hash(conversation_id || seed)`: o `USING SAMPLE ... REPEATABLE` do DuckDB devolveu amostras diferentes com a mesma semente (só é determinístico com uma thread).
 - Todos os candidatos rodam no **mesmo provedor** (DeepInfra, que tem os três com tool calling e saída estruturada), para a comparação medir só o modelo. Preços em US$/milhão de tokens consultados no router em 31/10/2026: Qwen3.5-27B 0,26/2,60; Qwen3.8-27B 0,20/2,50; Qwen3.5-9B 0,10/0,15.
-- Candidatos (só Qwen, decisão de 31/10/2026): `Qwen/Qwen3.5-27B`, `Qwen/Qwen3.8-27B` e `Qwen/Qwen3.5-9B` (para ver se um modelo menor e mais barato já resolve a extração). Confirmar disponibilidade no HF Inference Providers antes.
+- Modelo avaliado: `qwen3.5:4b` no Ollama local (decisão do autor: custo zero e cabe na GPU). Os candidatos do HF (`Qwen3.5-27B`, `Qwen3.8-27B`, `Qwen3.5-9B`) ficaram de fora por falta de créditos; o comando `autoseguro eval extraction` aceita qualquer um deles se a conta tiver saldo.
 - Métricas por modelo: acurácia de `idade`, `veiculo_ano` e prefixo do CEP; % de saída inválida; latência p50/p95; custo estimado, se o provedor informar.
 - Saída: `docs/eval/comparacao_modelos.md` com a tabela e a escolha justificada. Atualizar `LLM_MODEL` no `.env.example`.
 
@@ -111,8 +113,16 @@ class Extraction(BaseModel):
 - [x] Testes do redator com pelo menos 30 casos (formatos válidos, inválidos, colados em outras palavras, vários na mesma frase), sem falso positivo em CEP, ano e valores em R$. *(47 testes em `tests/unit/test_pii.py`, incluindo 500 UUIDs aleatórios que não podem virar telefone ou CPF.)*
 - [x] Varredura da Silver inteira: **zero** ocorrências dos padrões de CPF, e-mail, telefone e placa em `body_redacted` (teste automatizado). *(16.470 mensagens de 2.500 conversas; mascarados 2.500 CPFs, 1.379 telefones, 1.379 e-mails e 839 placas, batendo com as contagens do dataset. Além do redator, uma checagem com regex independentes.)*
 - [x] Um log gerado com uma mensagem contendo CPF não mostra o CPF (teste do processor do `structlog`).
-- [ ] `docs/eval/comparacao_modelos.md` existe, com a tabela dos candidatos e a escolha justificada.
-- [ ] O modelo escolhido tem pelo menos 95% de acurácia em `idade` e `veiculo_ano`. Se nenhum chegar lá, registrar e ajustar o prompt antes de seguir.
+- [x] `docs/eval/comparacao_modelos.md` existe, com a tabela, a escolha justificada e as limitações.
+- [x] O modelo escolhido tem pelo menos 95% de acurácia em `idade` e `veiculo_ano`. *(100% em idade, ano e CEP; p50 de 2,41 s e p95 de 2,48 s por extração.)*
+- [x] O modelo roda na GPU. *(Na rodada final, 191 de 191 leituras do `ollama ps` em `100% GPU`; `nvidia-smi` com uso médio de 86% e VRAM constante em 3.759 MiB.)*
+
+### Achados da validação
+
+- **Primeira chamada lenta:** carregar o modelo na GPU leva ~20 s e estourou o timeout. A avaliação faz uma chamada de aquecimento antes de medir, e o Ollama mantém o modelo carregado por 30 min (`OLLAMA_KEEP_ALIVE`). *No agente (B3), isso vira um aquecimento na inicialização.*
+- **Bug da ferramenta (rodada 1):** aquecimento e avaliação em dois event loops com o mesmo cliente HTTP → `Event loop is closed`. Corrigido.
+- **Vício do modelo (rodada 2):** `plano_id` devolvido como o texto `"None"` nas duas tentativas. Agora `"None"`, `"null"` e texto vazio são tratados como "não informado".
+- **`tool_choice`:** a documentação do Ollama diz que o endpoint compatível não aceita `tool_choice`, mas o function calling funcionou em 199 de 200 conversas na primeira tentativa (e na segunda na restante). Não foi preciso trocar para JSON mode.
 
 ## Testes
 
@@ -131,4 +141,5 @@ class Extraction(BaseModel):
 
 - O provedor de inferência é um terceiro: isso é transferência de dados. Mitigação: só sai texto já mascarado e mínimo. Registrar em ADR.
 - O CEP também tem prefixo de 2 dígitos parecido com DDD; garantir que o regex de telefone não engula o CEP.
-- O free tier do HF tem limite de créditos: a comparação de 3 × 200 chamadas precisa caber nele (ou reduzir a amostra). **Aconteceu:** a conta está sem créditos (402). Estimativa da comparação completa, sem *thinking*: ~US$ 0,30 para os três modelos.
+- O free tier do HF tem limite de créditos. **Aconteceu:** a conta gratuita não tem créditos mensais (402). Resolvido com o modelo local no Ollama.
+- Sem GPU NVIDIA, o modelo roda na CPU: funciona, mas bem mais devagar. O README explica as duas formas de subir.

@@ -15,7 +15,7 @@ Cada card é um bloco de entrega independente, com objetivo, tarefas, especifica
 |---|---|---|---|---|
 | [B0 — Fundação](B0-fundacao.md) | P0 | — | Qualidade | ☑ Pronto |
 | [B1 — Cotação resiliente](B1-cotacao-resiliente.md) | P0 ⭐ | B0 | Falha da `/quote`, rastreabilidade | ☑ Pronto |
-| [B2 — Privacidade e escolha do modelo](B2-privacidade-e-modelo.md) | P0 | B0 | Dados sensíveis | ◐ Falta a comparação de modelos |
+| [B2 — Privacidade e escolha do modelo](B2-privacidade-e-modelo.md) | P0 | B0 | Dados sensíveis | ☑ Pronto (aguardando merge) |
 | [B3 — Agente MVP](B3-agente-mvp.md) | P0 | B1, B2 | Ponta a ponta, rastreabilidade | ☐ A fazer |
 | [B4 — Handoff e degradação](B4-handoff-e-degradacao.md) | P0 | B3 | Critério de handoff, falha da `/quote` | ☐ A fazer |
 | [B5 — Canal WhatsApp](B5-canal-whatsapp.md) | P2 (opcional) | B3 | Prontidão para produção | ☐ A fazer |
