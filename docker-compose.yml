@@ -40,6 +40,35 @@ services:
         condition: service_healthy
     restart: "no"
 
+  # LLM local (Qwen via Ollama), com API compatível com a da OpenAI em :11434/v1.
+  # Para usar a GPU NVIDIA: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+  ollama:
+    image: ollama/ollama:0.40.5
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama:/root/.ollama
+    environment:
+      # Mantém o modelo carregado entre as mensagens (o padrão descarrega após 5 min).
+      OLLAMA_KEEP_ALIVE: "30m"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    restart: unless-stopped
+
+  # Baixa o modelo uma vez (fica no volume `ollama`) e termina.
+  ollama-pull:
+    image: ollama/ollama:0.40.5
+    entrypoint: ["ollama", "pull", "${LLM_MODEL:-qwen3.5:4b}"]
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: "no"
+
   # Agente pela linha de comando: docker compose run --rm agent autoseguro <comando>
   agent:
     build: ./agent
@@ -50,14 +79,18 @@ services:
     environment:
       QUOTE_API_URL: http://quote-api:8000
       DATABASE_URL: postgresql://autoseguro:autoseguro@postgres:5432/autoseguro
+      OLLAMA_BASE_URL: http://ollama:11434/v1
     depends_on:
       migrate:
         condition: service_completed_successfully
       quote-api:
         condition: service_started
+      ollama-pull:
+        condition: service_completed_successfully
     stdin_open: true
     tty: true
     command: ["autoseguro", "doctor"]
 
 volumes:
   pgdata:
+  ollama:

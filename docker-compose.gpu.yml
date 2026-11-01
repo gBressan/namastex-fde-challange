@@ -1,0 +1,13 @@
+# Dá ao Ollama acesso à GPU NVIDIA (Docker Desktop com WSL2 no Windows, ou nvidia-container-toolkit
+# no Linux). Fica num arquivo à parte porque, numa máquina sem NVIDIA, o container não subiria.
+# Uso: docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+# Conferir: docker compose exec ollama ollama ps   (coluna PROCESSOR deve mostrar "100% GPU")
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

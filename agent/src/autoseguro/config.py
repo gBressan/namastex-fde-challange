@@ -20,9 +20,12 @@ class Settings(BaseSettings):
     quote_api_url: str = "http://localhost:8000"
     database_url: str = "postgresql://autoseguro:autoseguro@localhost:5432/autoseguro"
 
-    llm_provider: Literal["openai_compatible", "scripted"] = "openai_compatible"
+    # `ollama`: modelo local (padrão, sem custo). `openai_compatible`: qualquer API compatível
+    # com a da OpenAI, como o router do Hugging Face (LLM_BASE_URL + token).
+    llm_provider: Literal["ollama", "openai_compatible"] = "ollama"
+    llm_model: str = "qwen3.5:4b"
+    ollama_base_url: str = "http://localhost:11434/v1"
     llm_base_url: str = "https://router.huggingface.co/v1"
-    llm_model: str = "Qwen/Qwen3.5-27B"
     llm_api_key: SecretStr | None = None
     llm_timeout_s: float = 20.0
     llm_disable_thinking: bool = True

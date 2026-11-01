@@ -26,14 +26,18 @@ from autoseguro.data.silver import DEFAULT_DATASET, DEFAULT_SILVER, build_silver
 from autoseguro.domain.models import PlanId, QuoteRequest
 from autoseguro.domain.normalizers import normalize_cep, parse_data_inicio
 from autoseguro.eval.extraction import (
+    Sample,
+    SampleResult,
     evaluate,
     load_samples,
     render_markdown,
     results_to_json,
     summarize,
+    warm_up,
 )
 from autoseguro.llm.extractor import LLMExtractor
-from autoseguro.llm.factory import get_chat_model
+from autoseguro.llm.factory import get_chat_model, resolve_api_key
+from autoseguro.llm.ollama import ollama_status
 from autoseguro.log import configure_logging
 from autoseguro.quote.cache import QuoteCache
 from autoseguro.quote.client import QuoteClient, QuoteClientConfig
@@ -95,8 +99,30 @@ def doctor() -> None:
         ok = False
         console.print(f"[red]✗[/red] quote-api inacessível: {exc}")
 
-    llm_key = "configurada" if settings.llm_api_key else "[yellow]não configurada[/yellow]"
-    console.print(f"  LLM: {settings.llm_model} via {settings.llm_base_url} (chave {llm_key})")
+    if settings.llm_provider == "ollama":
+        try:
+            status = ollama_status(settings)
+            if not status.downloaded:
+                ok = False
+                console.print(
+                    f"[red]✗[/red] Ollama no ar, mas {status.model} não foi baixado "
+                    "(docker compose up ollama-pull)"
+                )
+            elif not status.loaded:
+                console.print(
+                    f"[green]✓[/green] Ollama com {status.model} baixado "
+                    "(ainda não carregado; carrega na primeira chamada)"
+                )
+            else:
+                gpu = status.gpu_fraction or 0.0
+                where = "100% GPU" if gpu >= 0.999 else f"{gpu:.0%} GPU / {1 - gpu:.0%} CPU"
+                console.print(f"[green]✓[/green] Ollama com {status.model} carregado: {where}")
+        except httpx.HTTPError as exc:
+            ok = False
+            console.print(f"[red]✗[/red] Ollama inacessível em {settings.ollama_base_url}: {exc}")
+    else:
+        llm_key = "encontrada" if resolve_api_key(settings) else "[yellow]não encontrada[/yellow]"
+        console.print(f"  LLM: {settings.llm_model} via {settings.llm_base_url} (chave {llm_key})")
 
     if not ok:
         raise typer.Exit(code=1)
@@ -293,6 +319,15 @@ eval_app = typer.Typer(
 app.add_typer(eval_app, name="eval")
 
 
+async def _warm_up_and_evaluate(
+    extractor: LLMExtractor, samples: list[Sample], concurrency: int
+) -> list[SampleResult]:
+    # No mesmo event loop: o cliente HTTP do modelo fica preso ao loop em que foi usado.
+    # Uma chamada fora da medição antes, porque a primeira carrega o modelo (no Ollama, na GPU).
+    await warm_up(extractor)
+    return await evaluate(extractor, samples, concurrency=concurrency)
+
+
 @eval_app.command("extraction")
 def eval_extraction(
     model: Annotated[
@@ -320,7 +355,7 @@ def eval_extraction(
     for model_id in model:
         console.print(f"[bold]{model_id}[/bold]: {len(samples)} conversas…")
         extractor = LLMExtractor(get_chat_model(settings, model=model_id))
-        results = db.run_async(evaluate(extractor, samples, concurrency=concurrency))
+        results = db.run_async(_warm_up_and_evaluate(extractor, samples, concurrency))
         summary = summarize(model_id, results)
         summaries.append(summary)
         slug = model_id.replace("/", "__").replace(":", "--")

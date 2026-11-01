@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from autoseguro.domain.models import PlanId
 
@@ -57,3 +58,18 @@ class Extraction(BaseModel):
     confidence: float = Field(
         ge=0, le=1, description="Confiança de 0 a 1 na intenção e nos dados extraídos."
     )
+
+    @field_validator(
+        "veiculo_descricao", "veiculo_ano", "idade", "cep", "plano_id", "data_inicio_texto",
+        mode="before",
+    )  # fmt: skip
+    @classmethod
+    def _texto_vazio_e_none(cls, value: Any) -> Any:
+        # Modelos pequenos às vezes escrevem "None" ou "null" como texto em vez de omitir o
+        # campo (visto na avaliação com o qwen3.5:4b). Isso é "não informado", não um valor.
+        if isinstance(value, str) and value.strip().lower() in _VAZIOS:
+            return None
+        return value
+
+
+_VAZIOS = frozenset({"", "none", "null", "n/a", "na", "-"})

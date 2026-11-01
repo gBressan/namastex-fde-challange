@@ -8,6 +8,7 @@ que traz idade e CEP, e a resposta é comparada com `gt_idade`, `gt_veiculo_ano`
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import statistics
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -25,6 +26,7 @@ PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "Qwen/Qwen3.8-27B": (0.20, 2.50),
     "Qwen/Qwen3.5-9B": (0.10, 0.15),
 }
+# Modelos locais (Ollama) não têm custo por token.
 
 
 @dataclass(frozen=True)
@@ -84,6 +86,12 @@ def load_samples(silver: Path, n: int, seed: int = 42) -> list[Sample]:
     finally:
         con.close()
     return [Sample(r[0], list(r[1]), r[2], r[3], r[4]) for r in rows]
+
+
+async def warm_up(extractor: DetailedExtractor) -> None:
+    """Carrega o modelo antes de medir. Erro aqui não importa: a avaliação registra os seus."""
+    with contextlib.suppress(Exception):
+        await extractor.extract_with_details(ExtractionInput(lead_messages=["oi"]))
 
 
 async def evaluate(

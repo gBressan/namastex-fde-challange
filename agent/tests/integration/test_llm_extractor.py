@@ -24,7 +24,7 @@ from autoseguro.llm.extractor import (
     render_input,
 )
 from autoseguro.llm.factory import MissingLLMCredentialsError, get_chat_model, resolve_api_key
-from autoseguro.llm.schemas import Intent
+from autoseguro.llm.schemas import Extraction, Intent
 
 BASE_URL = "http://llm.test/v1"
 INPUT = ExtractionInput(
@@ -84,7 +84,7 @@ class FakeLLM:
 
     def handler(self, request: httpx2.Request) -> httpx2.Response:
         self.requests.append(request)
-        assert request.url.path == "/v1/chat/completions"
+        assert request.url.path.endswith("/v1/chat/completions")
         return self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
 
     def body(self, index: int = -1) -> dict[str, Any]:
@@ -98,7 +98,12 @@ class FakeLLM:
 
 @pytest.fixture
 def settings() -> Settings:
-    return Settings(llm_base_url=BASE_URL, llm_api_key="hf_teste", _env_file=None)
+    return Settings(
+        llm_provider="openai_compatible",
+        llm_base_url=BASE_URL,
+        llm_api_key="hf_teste",
+        _env_file=None,
+    )
 
 
 @pytest.fixture
@@ -204,4 +209,36 @@ def test_sem_token_nenhum_falha_com_mensagem_clara(
     monkeypatch.delenv("HF_TOKEN", raising=False)
     monkeypatch.setenv("HF_TOKEN_PATH", str(tmp_path / "nao_existe"))
     with pytest.raises(MissingLLMCredentialsError, match="hf auth login"):
-        get_chat_model(Settings(_env_file=None))
+        get_chat_model(Settings(llm_provider="openai_compatible", _env_file=None))
+
+
+async def test_ollama_usa_endpoint_local_sem_token_e_desliga_thinking_pelo_reasoning_effort(
+    api: FakeLLM, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.setenv("HF_TOKEN_PATH", str(tmp_path / "nao_existe"))
+    settings = Settings(ollama_base_url="http://ollama.test/v1", _env_file=None)
+    assert settings.llm_provider == "ollama"  # é o padrão
+    api.reply(completion(VALID_ARGS))
+    client = httpx2.AsyncClient(transport=httpx2.MockTransport(api.handler))
+
+    extraction = await LLMExtractor(get_chat_model(settings, http_async_client=client)).extract(
+        INPUT
+    )
+
+    assert extraction.idade == 41
+    request = api.requests[-1]
+    assert request.url.host == "ollama.test"
+    body = api.body()
+    assert body["model"] == "qwen3.5:4b"
+    assert body["reasoning_effort"] == "none"
+    assert "chat_template_kwargs" not in body
+
+
+@pytest.mark.parametrize("vazio", ["None", "null", "", "  NULL ", "n/a"])
+def test_none_escrito_como_texto_vira_campo_vazio(vazio: str) -> None:
+    extraction = Extraction.model_validate(
+        {"intent": "informar_dados", "plano_id": vazio, "idade": vazio, "confidence": 0.9}
+    )
+    assert extraction.plano_id is None
+    assert extraction.idade is None
