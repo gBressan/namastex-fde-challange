@@ -24,10 +24,16 @@ class Settings(BaseSettings):
     llm_base_url: str = "https://router.huggingface.co/v1"
     llm_model: str = "Qwen/Qwen3.5-27B"
     llm_api_key: SecretStr | None = None
+    llm_timeout_s: float = 20.0
+    llm_disable_thinking: bool = True
 
     quote_timeout_s: float = 2.5
     quote_max_attempts: int = 4
     quote_deadline_s: float = 12.0
+
+    # Sal do pseudônimo dos remetentes na camada Silver. O dataset é sintético, então um valor
+    # fixo basta para reprodutibilidade; com dados reais, viria de um cofre de segredos.
+    pseudonym_salt: SecretStr = SecretStr("autoseguro-silver-v1")
 
     log_level: str = "INFO"
     log_format: Literal["json", "console"] = "json"
