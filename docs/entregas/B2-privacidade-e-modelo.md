@@ -6,7 +6,7 @@
 | Depende de | B0 |
 | Desbloqueia | B3, B6 |
 | Critério da avaliação | "Cuidado com dados sensíveis", qualidade das decisões |
-| Status | ☑ Pronto (aguardando aprovação para o merge) |
+| Status | ☑ Pronto (merge na main em 31/10/2026) |
 
 ## Objetivo
 
