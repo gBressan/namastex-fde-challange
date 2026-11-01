@@ -6,7 +6,7 @@
 | Depende de | B0 |
 | Desbloqueia | B3, B6 |
 | Critério da avaliação | "Cuidado com dados sensíveis", qualidade das decisões |
-| Status | ☐ A fazer |
+| Status | ◐ Falta rodar a comparação de modelos (sem créditos no HF) |
 
 ## Objetivo
 
@@ -24,22 +24,23 @@
 ## Tarefas
 
 ### Mascaramento
-- [ ] `safety/pii.py`: `PIIRedactor.redact(text) -> RedactionResult(text, entities)`.
-- [ ] Processor do `structlog` que aplica o redator em todo log (segunda linha de defesa).
-- [ ] Função `mask_cep_for_log("21310100") -> "21***-***"`.
+- [x] `safety/pii.py`: `PIIRedactor.redact(text) -> RedactionResult(text, entities)`.
+- [x] Processor do `structlog` que aplica o redator em todo log (segunda linha de defesa).
+- [x] Função `mask_cep_for_log("21310100") -> "21***-***"` (já existia desde o B0, em `domain/normalizers.py`).
 
 ### Silver mínima
-- [ ] `data_pipeline/silver.py` (DuckDB): lê o parquet, ordena por `conversation_id, message_index`, mascara `message_body`, pseudonimiza `sender_name`, extrai o gabarito.
-- [ ] Saída em `data/silver/lead_messages.parquet` (gerada por comando, fora do git).
-- [ ] Comando `autoseguro data silver`.
+- [x] `autoseguro/data/silver.py` (DuckDB): lê o parquet, ordena por `conversation_id, message_index`, mascara `message_body`, pseudonimiza `sender_name`, extrai o gabarito. *Dentro do pacote (e não em `data_pipeline/` na raiz) para o CLI importar direto. O DuckDB exige `numpy` para registrar o redator como função SQL; a dependência foi adicionada.*
+- [x] Saída em `data/silver/lead_messages.parquet` (gerada por comando, fora do git).
+- [x] Comando `autoseguro data silver` (gera, mostra quantos dados foram mascarados e varre o resultado atrás de vazamentos).
 
 ### Modelo
-- [ ] Serviço `ollama` no `docker-compose.yml` com perfil `local-llm` (veio do B0), com versão de imagem fixa, para rodar o `qwen3.5:9b` sem depender de provedor externo.
-- [ ] `llm/factory.py`: `get_chat_model(settings, purpose)` → `ChatOpenAI` apontando para `LLM_BASE_URL` (com `max_retries=0`: o retry é nosso, numa camada só).
-- [ ] `llm/extractor.py`: interface `Extractor.extract(state) -> Extraction`, com `LLMExtractor` (produção) e `ScriptedExtractor` (testes: devolve a extração escrita no YAML do cenário). Motivo: o `GenericFakeChatModel` do LangChain não suporta tool calling, então não dá para testar `with_structured_output` com ele.
-- [ ] `llm/schemas.py`: `Extraction` (Pydantic), o formato de saída da extração.
-- [ ] `llm/prompts/extraction.md`: prompt versionado.
-- [ ] `eval/extraction_eval.py`: compara candidatos e gera `docs/eval/comparacao_modelos.md`.
+- [x] ~~Serviço `ollama` no `docker-compose.yml`~~ — descartado (31/10/2026): o modelo é usado só pela API do Hugging Face, como num cenário real de produção. Rodar local não acrescenta ao desafio, e a GPU disponível (RTX 4050, 6 GB) só comportaria um modelo menor do que os avaliados.
+- [x] `llm/factory.py`: `get_chat_model(settings)` → `ChatOpenAI` apontando para `LLM_BASE_URL` (com `max_retries=0`: o retry é nosso, numa camada só). O token vem de `LLM_API_KEY` ou, se vazio, do login do `hf` CLI (`hf auth login`); no Docker, de `HF_TOKEN`.
+- [x] `llm/extractor.py`: interface `Extractor.extract(ExtractionInput) -> Extraction`, com `LLMExtractor` (produção) e `ScriptedExtractor` (testes: devolve a extração escrita no YAML do cenário). Motivo: o `GenericFakeChatModel` do LangChain não suporta tool calling, então não dá para testar `with_structured_output` com ele.
+- [x] `llm/schemas.py`: `Extraction` (Pydantic), o formato de saída da extração.
+- [x] `llm/prompts/extraction.md`: prompt versionado.
+- [x] `autoseguro/eval/extraction.py` + comando `autoseguro eval extraction`: compara candidatos e gera `docs/eval/comparacao_modelos.md`.
+- [ ] **Rodar a comparação.** Bloqueado: a conta do Hugging Face está sem créditos (HTTP 402, "You have no remaining credits"). O token do `hf` CLI foi aceito; falta só saldo.
 
 ## Especificação
 
@@ -98,26 +99,28 @@ class Extraction(BaseModel):
 
 ### Comparação de modelos
 
-- Amostra: 200 conversas da Silver (semente fixa). Entrada: as mensagens do lead até a que contém idade, ano e CEP.
-- Candidatos: `Qwen/Qwen3.5-27B`, `Qwen/Qwen3.8-27B`, `openai/gpt-oss-20b` (confirmar disponibilidade no HF Inference Providers antes).
+- Amostra: 200 conversas da Silver (semente fixa). Entrada: as mensagens do lead até a que contém idade, ano e CEP (e a seguinte).
+- O sorteio é feito por `ORDER BY hash(conversation_id || seed)`: o `USING SAMPLE ... REPEATABLE` do DuckDB devolveu amostras diferentes com a mesma semente (só é determinístico com uma thread).
+- Todos os candidatos rodam no **mesmo provedor** (DeepInfra, que tem os três com tool calling e saída estruturada), para a comparação medir só o modelo. Preços em US$/milhão de tokens consultados no router em 31/10/2026: Qwen3.5-27B 0,26/2,60; Qwen3.8-27B 0,20/2,50; Qwen3.5-9B 0,10/0,15.
+- Candidatos (só Qwen, decisão de 31/10/2026): `Qwen/Qwen3.5-27B`, `Qwen/Qwen3.8-27B` e `Qwen/Qwen3.5-9B` (para ver se um modelo menor e mais barato já resolve a extração). Confirmar disponibilidade no HF Inference Providers antes.
 - Métricas por modelo: acurácia de `idade`, `veiculo_ano` e prefixo do CEP; % de saída inválida; latência p50/p95; custo estimado, se o provedor informar.
 - Saída: `docs/eval/comparacao_modelos.md` com a tabela e a escolha justificada. Atualizar `LLM_MODEL` no `.env.example`.
 
 ## Critérios de aceite
 
-- [ ] Testes do redator com pelo menos 30 casos (formatos válidos, inválidos, colados em outras palavras, vários na mesma frase), sem falso positivo em CEP, ano e valores em R$.
-- [ ] Varredura da Silver inteira: **zero** ocorrências dos padrões de CPF, e-mail, telefone e placa em `body_redacted` (teste automatizado).
-- [ ] Um log gerado com uma mensagem contendo CPF não mostra o CPF (teste do processor do `structlog`).
+- [x] Testes do redator com pelo menos 30 casos (formatos válidos, inválidos, colados em outras palavras, vários na mesma frase), sem falso positivo em CEP, ano e valores em R$. *(47 testes em `tests/unit/test_pii.py`, incluindo 500 UUIDs aleatórios que não podem virar telefone ou CPF.)*
+- [x] Varredura da Silver inteira: **zero** ocorrências dos padrões de CPF, e-mail, telefone e placa em `body_redacted` (teste automatizado). *(16.470 mensagens de 2.500 conversas; mascarados 2.500 CPFs, 1.379 telefones, 1.379 e-mails e 839 placas, batendo com as contagens do dataset. Além do redator, uma checagem com regex independentes.)*
+- [x] Um log gerado com uma mensagem contendo CPF não mostra o CPF (teste do processor do `structlog`).
 - [ ] `docs/eval/comparacao_modelos.md` existe, com a tabela dos candidatos e a escolha justificada.
 - [ ] O modelo escolhido tem pelo menos 95% de acurácia em `idade` e `veiculo_ano`. Se nenhum chegar lá, registrar e ajustar o prompt antes de seguir.
 
 ## Testes
 
-- [ ] Unitários do redator (tabela parametrizada).
-- [ ] Propriedade: `redact(redact(x)) == redact(x)` (idempotência).
-- [ ] Teste da Silver contra o parquet real (marcado `@pytest.mark.data`).
-- [ ] Teste da fábrica: `LLM_PROVIDER=scripted` não faz chamada de rede.
-- [ ] Teste de contrato do `LLMExtractor` com `respx` simulando a resposta do endpoint OpenAI-compatível (tool call válida, JSON inválido, timeout).
+- [x] Unitários do redator (tabela parametrizada).
+- [x] Propriedade: `redact(redact(x)) == redact(x)` (idempotência).
+- [x] Teste da Silver contra o parquet real (marcado `@pytest.mark.data`).
+- [x] Ordem do token: `LLM_API_KEY` → `HF_TOKEN` → login do `hf` CLI; sem nenhum, erro com instrução clara.
+- [x] Teste de contrato do `LLMExtractor` simulando o endpoint OpenAI-compatível (tool call válida, saída inválida corrigida na 2ª tentativa, saída sempre inválida, 503 sem retry do cliente). *O SDK da OpenAI 3.x usa `httpx2`, que o `respx` não intercepta: o endpoint falso entra como `httpx2.MockTransport` no cliente HTTP do modelo.*
 
 ## Fora do escopo
 
@@ -126,6 +129,6 @@ class Extraction(BaseModel):
 
 ## Riscos e cuidados
 
-- O provedor de inferência é um terceiro: isso é transferência de dados. Mitigação: só sai texto já mascarado e mínimo; o modo local (Ollama) elimina a transferência. Registrar em ADR.
+- O provedor de inferência é um terceiro: isso é transferência de dados. Mitigação: só sai texto já mascarado e mínimo. Registrar em ADR.
 - O CEP também tem prefixo de 2 dígitos parecido com DDD; garantir que o regex de telefone não engula o CEP.
-- O free tier do HF tem limite de créditos: a comparação de 3 × 200 chamadas precisa caber nele (ou reduzir a amostra).
+- O free tier do HF tem limite de créditos: a comparação de 3 × 200 chamadas precisa caber nele (ou reduzir a amostra). **Aconteceu:** a conta está sem créditos (402). Estimativa da comparação completa, sem *thinking*: ~US$ 0,30 para os três modelos.

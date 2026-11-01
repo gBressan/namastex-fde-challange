@@ -46,6 +46,7 @@ uv run autoseguro doctor
 ```bash
 cd agent
 uv run pytest -m "not chaos"   # banco e API usam o compose (os testes pulam se não houver)
+                              # os testes `data` leem o dataset/ do repositório
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy
@@ -62,6 +63,19 @@ uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 21310-100 -
 # 50 cotações seguidas, sem cache, com resumo de tempos e desfechos
 uv run autoseguro quote --plano completo --idade 35 --ano 2022 --cep 01310-100 --repeat 50 --no-cache
 ```
+
+### Dados e modelo de LLM
+
+```bash
+cd agent
+# Camada Silver: mensagens de lead mascaradas, com gabarito (grava em data/silver/)
+uv run autoseguro data silver
+# Compara modelos na extração (precisa de token do Hugging Face com créditos)
+uv run autoseguro eval extraction --model Qwen/Qwen3.5-27B:deepinfra --n 30
+```
+
+O token do LLM vem de `LLM_API_KEY`, de `HF_TOKEN` ou do login do `hf` CLI
+(`hf auth login`). Dentro do Docker, use `LLM_API_KEY` ou `HF_TOKEN` no `.env`.
 
 ### Simular falhas da API de cotação
 
