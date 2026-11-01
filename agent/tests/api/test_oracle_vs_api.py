@@ -49,10 +49,18 @@ CASES = [
 ]
 
 
-async def _quote_until_answer(client: QuoteClient, req: QuoteRequest) -> QuoteOutcome:
-    # Com o caos padrão, ~0,8% das cotações ficam indisponíveis mesmo com retry.
-    # Aqui o que importa é o preço, então tentamos de novo.
+async def _quote_until_answer(http: httpx.AsyncClient, req: QuoteRequest) -> QuoteOutcome:
+    """Com o caos padrão, ~0,8% das cotações ficam indisponíveis mesmo com o retry do cliente.
+    Aqui o que importa é o preço, então tentamos de novo, **com um cliente novo a cada vez**:
+    depois de 4 falhas seguidas, a próxima abre o breaker, e o mesmo cliente devolveria
+    `circuit_open` sem nem chamar a API (o que deixava este teste instável na CI)."""
     for _ in range(3):
+        client = QuoteClient(
+            http=http,
+            events=InMemoryEventStore(),
+            quotes=InMemoryQuoteRepository(),
+            cache=QuoteCache(ttl_s=0),
+        )
         outcome = await client.quote(req)
         if not isinstance(outcome, QuoteUnavailable):
             return outcome
@@ -76,13 +84,7 @@ async def test_api_bate_com_o_oraculo(
     )
 
     async with httpx.AsyncClient(base_url=quote_api_url) as http:
-        client = QuoteClient(
-            http=http,
-            events=InMemoryEventStore(),
-            quotes=InMemoryQuoteRepository(),
-            cache=QuoteCache(ttl_s=0),
-        )
-        outcome = await _quote_until_answer(client, req)
+        outcome = await _quote_until_answer(http, req)
 
     if isinstance(expected, OracleRefusal):
         assert isinstance(outcome, QuoteRefused), outcome
